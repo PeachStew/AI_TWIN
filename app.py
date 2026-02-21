@@ -22,6 +22,7 @@ if 'initialized' not in st.session_state:
     st.session_state.da = DebaterAgent()
     st.session_state.all_behaviors = pd.DataFrame()
     st.session_state.performance_history = pd.DataFrame(columns=['Time', 'Return'])
+    st.session_state.last_feedback = None # 최근 DA의 피드백 데이터
     st.session_state.initialized = True
 
 # 사이드바: 컨트롤 인터페이스
@@ -30,7 +31,15 @@ st.sidebar.markdown(f"**현재 가상 시간:** {st.session_state.oa.current_sim
 
 def run_simulation(steps=1):
     for _ in range(steps):
-        behaviors = st.session_state.oa.step_hour()
+        # 1. 이전 피드백을 CSA/OA에 반영
+        if st.session_state.last_feedback:
+            # CSA 시장 심리 업데이트
+            st.session_state.csa.update_sentiment(st.session_state.last_feedback['risk_sentiment'])
+            # OA 포트폴리오 최적화에 DA 제안 전달 (이미 step_hour 내부에서 반영되도록 수정됨)
+
+        # 2. 시뮬레이션 한 스텝 진행 (DA 제안 포함)
+        behaviors = st.session_state.oa.step_hour(extra_signals=st.session_state.last_feedback)
+        
         if not behaviors.empty:
             st.session_state.all_behaviors = pd.concat([st.session_state.all_behaviors, behaviors]).tail(1000)
         
@@ -40,12 +49,13 @@ def run_simulation(steps=1):
         new_row = pd.DataFrame({'Time': [st.session_state.oa.current_sim_time], 'Return': [new_return]})
         st.session_state.performance_history = pd.concat([st.session_state.performance_history, new_row])
         
-        # Debater 분석
-        st.session_state.da.analyze_strategy(
+        # 3. 새로운 피드백 생성 및 저장
+        critique, feedback_data = st.session_state.da.analyze_strategy(
             st.session_state.oa.current_sim_time, 
             st.session_state.oa.etf_portfolio, 
             behaviors
         )
+        st.session_state.last_feedback = feedback_data
 
 col1, col2, col3 = st.sidebar.columns(3)
 if col1.button("1H"):
@@ -104,6 +114,15 @@ with b1:
         st.dataframe(st.session_state.all_behaviors.sort_values('timestamp', ascending=False).head(10), use_container_width=True)
     else:
         st.write("대기 중...")
+        
+    # CSA 지시사항 반영 기록 창 추가
+    st.markdown("---")
+    st.subheader("🤖 CSA Instruction Log")
+    if st.session_state.last_feedback and st.session_state.last_feedback['csa_instructions']:
+        for inst in st.session_state.last_feedback['csa_instructions']:
+            st.success(f"📌 {inst}")
+    else:
+        st.write("반영된 지시사항이 없습니다.")
 
 with b2:
     st.subheader("⚖️ Debater's Critique")

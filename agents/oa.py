@@ -10,7 +10,7 @@ class OrchestratorAgent:
         self.etf_portfolio = {} # {종목명: 가중치}
         self.history = []
 
-    def step_hour(self):
+    def step_hour(self, extra_signals=None):
         """1시간 진행"""
         print(f"--- Simulating Hour: {self.current_sim_time} ---")
         
@@ -20,8 +20,8 @@ class OrchestratorAgent:
         # 2. 행동 데이터 분석 및 시장 시그널 생성
         signals = self._analyze_behaviors(behaviors)
         
-        # 3. 포트폴리오 최적화 (재균형)
-        self._optimize_portfolio(signals)
+        # 3. 포트폴리오 최적화 (재균형) - DA의 추가 시그널 반영
+        self._optimize_portfolio(signals, extra_signals)
         
         # 4. 결과 저장
         self.history.append({
@@ -41,7 +41,7 @@ class OrchestratorAgent:
             
         # 간단한 로직: 카드 결제 카테고리/증권 매수 섹터를 기반으로 점수 산출
         sector_scores = {
-            'IT': 0, '금융': 0, '바이오': 0, '제조': 0, '에너지': 0, '소비재': 0, '플랫폼': 0
+            'IT': 0.0, '금융': 0.0, '바이오': 0.0, '제조': 0.0, '에너지': 0.0, '소비재': 0.0, '플랫폼': 0.0
         }
         
         for _, row in behaviors.iterrows():
@@ -60,9 +60,11 @@ class OrchestratorAgent:
                             
         return sector_scores
 
-    def _optimize_portfolio(self, signals):
+    def _optimize_portfolio(self, signals, extra_signals=None):
         """시그널을 바탕으로 ETF 종목 선정 및 비중 조절"""
-        # 현재는 상위 10개 종목에 대해 섹터 기반으로 가중치를 부여하는 단순 모델
+        # extra_signals는 DA의 제안: {'sector_recs': {'IT': 0.05, ...}}
+        sector_recs = extra_signals.get('sector_recs', {}) if extra_signals else {}
+
         stock_list = list(self.stock_engine.tickers.keys())
         
         # 종목별 섹터 매핑 (예시)
@@ -76,8 +78,10 @@ class OrchestratorAgent:
         for stock in stock_list:
             sector = stock_sectors.get(stock, '기타')
             score = signals.get(sector, 0)
-            # 기본 비중 10% + 시그널에 따른 가감
-            weight = max(0.05, 0.10 + (score * 0.01))
+            
+            # 기본 비중 10% + 시그널에 따른 가감 + DA 제안 반영
+            da_adj = sector_recs.get(sector, 0)
+            weight = max(0.05, 0.10 + (score * 0.01) + da_adj)
             weights[stock] = weight
             
         # 가중치 정규화 (합계 1.0)
